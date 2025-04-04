@@ -1,0 +1,117 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <ctype.h>
+
+#define MAX_FILES 1000
+#define MAX_PATH_LENGTH 512 
+
+// Structure to store file information
+struct FileInfo {
+    char name[100];
+    char path[MAX_PATH_LENGTH]; 
+    int is_suspicious;
+};
+
+// Structure for analysis results
+struct ScanResults {
+    struct FileInfo files[MAX_FILES];
+    int file_count;
+    int suspicious_count;
+};
+
+// Convert string to lowercase
+void to_lowercase(char *str) {
+    for (int i = 0; str[i]; i++) {
+        str[i] = tolower(str[i]);
+    }
+}
+
+// Check if a file is suspicious based on name
+int check_suspicious(const char *filename) {
+    char temp_filename[100];
+    strncpy(temp_filename, filename, sizeof(temp_filename));
+    to_lowercase(temp_filename);
+
+    if (strstr(temp_filename, ".exe")) return 1;
+    if (strstr(temp_filename, ".bat")) return 1;
+    if (strstr(temp_filename, ".sh")) return 1;
+    if (strstr(temp_filename, "hack")) return 1;
+    if (strstr(temp_filename, "malware")) return 1;
+    return 0;
+}
+
+void scan_directory(const char *dirpath, struct ScanResults *results) {
+    DIR *dir = opendir(dirpath);
+    struct dirent *entry;
+
+    if (!dir) {
+        perror("Error opening directory");
+        return;
+    }
+
+    while ((entry = readdir(dir)) != NULL && results->file_count < MAX_FILES) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char full_path[MAX_PATH_LENGTH];  
+        snprintf(full_path, MAX_PATH_LENGTH, "%s/%s", dirpath, entry->d_name);
+
+        struct stat st;
+        if (stat(full_path, &st) == -1) continue;
+
+        if (S_ISDIR(st.st_mode)) {
+            scan_directory(full_path, results); // Recurse into subdirectory
+        } else {
+            snprintf(results->files[results->file_count].name, sizeof(results->files[results->file_count].name), "%s", entry->d_name);
+            snprintf(results->files[results->file_count].path, sizeof(results->files[results->file_count].path), "%s", full_path);
+
+            results->files[results->file_count].is_suspicious = check_suspicious(entry->d_name);
+            if (results->files[results->file_count].is_suspicious)
+                results->suspicious_count++;
+
+            results->file_count++;
+        }
+    }
+
+    closedir(dir);
+}
+void generate_report(struct ScanResults *results) {
+    printf("\n=== Scan Report ===\n");
+    printf("Total Files Scanned: %d\n", results->file_count);
+    printf("Suspicious Files Detected: %d\n\n", results->suspicious_count);
+
+    for (int i = 0; i < results->file_count; i++) {
+        if (results->files[i].is_suspicious) {
+            printf("⚠  Suspicious: %s\n", results->files[i].path);
+        }
+    }
+
+    printf("\nScan complete.\n");
+}
+
+int main() {
+    struct ScanResults results = {0};
+    char path[MAX_PATH_LENGTH];  
+
+    printf("Cyber Triage Tool - Digital Forensics Scanner\n");
+    printf("Enter directory to scan: ");
+    if (!fgets(path, MAX_PATH_LENGTH, stdin) || path[strcspn(path, "\n")] == '\0') {
+        printf("Input error or empty directory path.\n");
+        return 1;
+    }
+    path[strcspn(path, "\n")] = '\0'; // Remove newline
+
+    if (access(path, F_OK) != 0) {
+        printf("Directory does not exist.\n");
+        return 1;
+    }
+
+    scan_directory(path, &results);
+    generate_report(&results);
+
+    return 0;
+}
